@@ -17,7 +17,7 @@ from utils import (Tracker, get_hparams, get_logger, seed_everything,
 def train(epoch, model, optimizer, loader, logger, accelerator):
     model.train()
     tracker = Tracker()
-    bar = tqdm(desc=f'Epoch: {epoch} ', total=len(loader))
+    bar = tqdm(desc=f'Epoch: {epoch} ', total=len(loader), disable=not accelerator.is_main_process)
     for phoneme, a1, f2, in_length, mel, out_length, spk_id in loader:
         optimizer.zero_grad()
         (z, z_m, z_logs, logdet, z_mask), _, (attn, logw, logw_) = model(
@@ -32,10 +32,11 @@ def train(epoch, model, optimizer, loader, logger, accelerator):
         bar.update()
         bar.set_postfix_str(f'Loss: {loss.item():.4f}, MLE: {l_mle.item():.4f}, Duration: {l_dur.item():.4f}')
         tracker.update(mle=l_mle.item(), dur=l_dur.item(), all=loss.item())
-    logger.info(f'Train Epoch: {epoch}, '
-                f'Loss: {tracker.all.mean():.6f}, '
-                f'MLE Loss: {tracker.mle.mean():.6f}, '
-                f'Duration Loss: {tracker.dur.mean():.6f}')
+    if accelerator.is_main_process:
+        logger.info(f'Train Epoch: {epoch}, '
+                    f'Loss: {tracker.all.mean():.6f}, '
+                    f'MLE Loss: {tracker.mle.mean():.6f}, '
+                    f'Duration Loss: {tracker.dur.mean():.6f}')
     bar.close()
 
 
@@ -61,11 +62,9 @@ def evaluate(epoch, model, loader, logger):
 def main():
     hps = get_hparams()
     logger = get_logger(hps.model_dir)
-    logger.info(hps)
     seed_everything(hps.train.seed)
 
     accelerator = Accelerator(fp16=True)
-    print(accelerator.state)
 
     train_dataset = TextMelDataset(hps.data.train_file, hps.data)
     collate_fn = TextMelCollate()
@@ -128,20 +127,22 @@ def main():
 
     for epoch in range(epochs, hps.train.epochs+1):
         train(epoch, model, optimizer, train_loader, logger, accelerator)
-        mle_loss_, dur_loss = evaluate(epoch, model, valid_loader, logger)
-        if mle_loss_ < best_mle_loss:
+        accelerator.wait_for_everyone()
+        if accelerator.is_main_process:
+            mle_loss_, dur_loss = evaluate(epoch, model, valid_loader, logger)
+            if mle_loss_ < best_mle_loss:
+                save_checkpoint(accelerator.unwrap_model(model), optimizer,
+                                [best_mle_loss, best_dur_loss], epoch,
+                                os.path.join(hps.model_dir, f'G_best.pth'))
+                best_mle_loss = mle_loss_
+            if dur_loss < best_dur_loss:
+                save_dp(accelerator.unwrap_model(model), epoch,
+                        os.path.join(hps.model_dir, f'DP_best.pth'))
+                best_dur_loss = dur_loss
             save_checkpoint(accelerator.unwrap_model(model), optimizer,
                             [best_mle_loss, best_dur_loss], epoch,
-                            os.path.join(hps.model_dir, f'G_best.pth'))
-            best_mle_loss = mle_loss_
-        if dur_loss < best_dur_loss:
-            save_dp(accelerator.unwrap_model(model), epoch,
-                    os.path.join(hps.model_dir, f'DP_best.pth'))
-            best_dur_loss = dur_loss
-        save_checkpoint(accelerator.unwrap_model(model), optimizer,
-                        [best_mle_loss, best_dur_loss], epoch,
-                        os.path.join(hps.model_dir, f'G_latest.pth'))
-        print('-'*70)
+                            os.path.join(hps.model_dir, f'G_latest.pth'))
+            print('-'*70)
 
 
 if __name__ == '__main__':
