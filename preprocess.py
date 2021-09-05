@@ -20,11 +20,6 @@ class PreProcessor:
             lines = f.readlines()
         phonemes, a1s, f2s = list(), list(), list()
         for line in lines:
-            if line.split("-")[1].split("+")[0] == "sil":
-                phonemes += ["sil"]
-                a1s += ["xx"]
-                f2s += ["xx"]
-                continue
             if line.split("-")[1].split("+")[0] == "pau":
                 phonemes += ["pau"]
                 a1s += ["xx"]

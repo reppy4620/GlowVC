@@ -347,6 +347,14 @@ class FlowGenerator(nn.Module):
             w_ = torch.sum(attn, -1) * x_mask
             return (z, z_m, z_logs, logdet, z_mask), (x_m, x_logs, x_mask), (attn, w, w_)
 
+    def voice_conversion(self, y, y_lengths, g1=1, g2=0):
+        z_mask = torch.unsqueeze(sequence_mask(y_lengths), 1).to(y.device)
+        g1 = F.normalize(self.emb_g(torch.tensor([g1], device=y.device, dtype=torch.long))).unsqueeze(-1)
+        g2 = F.normalize(self.emb_g(torch.tensor([g2], device=y.device, dtype=torch.long))).unsqueeze(-1)
+        z, _ = self.decoder(y, z_mask, g=g1, reverse=False)
+        y_hat, _ = self.decoder(z, z_mask, g=g2, reverse=True)
+        return y_hat
+
     def preprocess(self, y, y_lengths, y_max_length):
         if y_max_length is not None:
             y_max_length = (y_max_length // self.n_sqz) * self.n_sqz

@@ -1,5 +1,4 @@
 <pad>
-sil
 pau
 N
 a

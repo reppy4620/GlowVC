@@ -8,12 +8,11 @@ N_VOCAB = len(Tokenizer())
 
 def load_glow_tts(model_dir):
     hps = get_hparams_from_dir(model_dir)
-    checkpoint_path = latest_checkpoint_path(model_dir)
     model = FlowGenerator(
         n_vocab=N_VOCAB,
         out_channels=hps.data.n_mel_channels,
         **hps.model
     )
-    load_checkpoint(checkpoint_path, model)
+    load_checkpoint(f'{model_dir}/G_latest.pth', model)
     return model
 
